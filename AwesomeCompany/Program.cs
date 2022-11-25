@@ -18,11 +18,11 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.DisplayRequestDuration();
+});
 
 app.UseHttpsRedirection();
 
@@ -33,7 +33,7 @@ app.MapPut("increase-salaries", async (int companyId, DatabaseContext dbContext)
     .Include(c => c.Employees)
     .FirstOrDefaultAsync(x => x.Id == companyId);
 
-    if(company is null)
+    if (company is null)
     {
         return Results.NotFound($"The company with Id is {companyId} was not found.");
     }
@@ -50,11 +50,10 @@ app.MapPut("increase-salaries", async (int companyId, DatabaseContext dbContext)
     return Results.NoContent();
 });
 
-app.MapPut("increase-salaries-sql", async (int companyId, DatabaseContext dbContext) =>
+app.MapPut("increase-salaries-v2", async (int companyId, DatabaseContext dbContext) =>
 {
     var company = await dbContext
     .Set<Company>()
-    .Include(c => c.Employees)
     .FirstOrDefaultAsync(x => x.Id == companyId);
 
     if (company is null)
@@ -62,7 +61,25 @@ app.MapPut("increase-salaries-sql", async (int companyId, DatabaseContext dbCont
         return Results.NotFound($"The company with Id is {companyId} was not found.");
     }
 
+    await dbContext.Set<Employee>()
+             .Where(e => e.CompanyId == company.Id)
+             .ExecuteUpdateAsync(s => s.SetProperty(
+                 e => e.Salary,
+                 e => e.Salary * 1.1m));
 
+    return Results.NoContent();
+});
+
+app.MapPut("increase-salaries-sql", async (int companyId, DatabaseContext dbContext) =>
+{
+    var company = await dbContext
+    .Set<Company>()
+    .FirstOrDefaultAsync(x => x.Id == companyId);
+
+    if (company is null)
+    {
+        return Results.NotFound($"The company with Id is {companyId} was not found.");
+    }
 
     await dbContext.Database.BeginTransactionAsync();
 
@@ -82,7 +99,6 @@ app.MapPut("increase-salaries-sql-dapper", async (int companyId, DatabaseContext
 {
     var company = await dbContext
     .Set<Company>()
-    .Include(c => c.Employees)
     .FirstOrDefaultAsync(x => x.Id == companyId);
 
     if (company is null)
@@ -102,6 +118,31 @@ app.MapPut("increase-salaries-sql-dapper", async (int companyId, DatabaseContext
 
     return Results.NoContent();
 });
+
+app.MapDelete("delete-employees", async (
+    int companyId,
+    decimal salaryThreshold,
+    DatabaseContext dbContext) =>
+{
+    var company = await dbContext
+    .Set<Company>()
+    .FirstOrDefaultAsync(x => x.Id == companyId);
+
+    if (company is null)
+    {
+        return Results.NotFound($"The company with Id is {companyId} was not found.");
+    }
+
+    await dbContext.Set<Employee>()
+             .Where(e => e.CompanyId == company.Id && e.Salary > salaryThreshold)
+             .ExecuteDeleteAsync();
+
+    return Results.NoContent();
+});
+
+app.UseHttpsRedirection();
+
+app.UseAuthorization();
 
 app.MapControllers();
 
